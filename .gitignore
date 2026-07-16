@@ -16,6 +16,10 @@
 # production
 /build
 
+# android build artifacts
+*.apk
+*.aab
+
 # misc
 .DS_Store
 *.pem
