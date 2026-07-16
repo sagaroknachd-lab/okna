@@ -1,5 +1,14 @@
 apply plugin: 'com.android.application'
 
+// Load release signing config from android/keystore.properties if present.
+// The file (and the keystore it points to) are kept out of version control.
+def keystorePropsFile = rootProject.file("keystore.properties")
+def hasKeystore = keystorePropsFile.exists()
+def keystoreProps = new Properties()
+if (hasKeystore) {
+    keystoreProps.load(new FileInputStream(keystorePropsFile))
+}
+
 android {
     namespace = "com.okna.app"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -16,10 +25,23 @@ android {
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
         }
     }
+    signingConfigs {
+        if (hasKeystore) {
+            release {
+                storeFile rootProject.file(keystoreProps['storeFile'])
+                storePassword keystoreProps['storePassword']
+                keyAlias keystoreProps['keyAlias']
+                keyPassword keystoreProps['keyPassword']
+            }
+        }
+    }
     buildTypes {
         release {
             minifyEnabled false
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            if (hasKeystore) {
+                signingConfig signingConfigs.release
+            }
         }
     }
 }
