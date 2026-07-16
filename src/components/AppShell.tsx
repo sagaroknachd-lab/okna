@@ -11,6 +11,7 @@ const NAV = [
   { href: "/app/subscriptions", label: "Subscriptions", icon: "🗂️" },
   { href: "/app/savings", label: "Savings", icon: "💡" },
   { href: "/app/reminders", label: "Reminders", icon: "🔔" },
+  { href: "/app/settings", label: "Settings", icon: "⚙️" },
 ];
 
 export function AppShell({ children }: { children: ReactNode }) {
@@ -69,7 +70,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </main>
 
         {/* Mobile bottom nav */}
-        <nav className="sticky bottom-0 z-30 grid grid-cols-4 border-t border-ink-100 bg-white lg:hidden">
+        <nav className="sticky bottom-0 z-30 grid grid-cols-5 border-t border-ink-100 bg-white lg:hidden">
           {NAV.map((item) => {
             const active =
               item.href === "/app"
