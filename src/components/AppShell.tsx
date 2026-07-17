@@ -7,12 +7,17 @@ import { useStore } from "@/lib/store";
 import { SubscriptionForm } from "@/components/SubscriptionForm";
 
 const NAV = [
-  { href: "/app", label: "Overview", icon: "📊" },
-  { href: "/app/subscriptions", label: "Subscriptions", icon: "🗂️" },
-  { href: "/app/savings", label: "Savings", icon: "💡" },
-  { href: "/app/reminders", label: "Reminders", icon: "🔔" },
-  { href: "/app/settings", label: "Settings", icon: "⚙️" },
+  { href: "/app", label: "Overview", short: "Home", icon: "📊" },
+  { href: "/app/subscriptions", label: "Subscriptions", short: "Plans", icon: "🗂️" },
+  { href: "/app/advisor", label: "AI Advisor", short: "Advisor", icon: "🤖" },
+  { href: "/app/savings", label: "Savings", short: "Savings", icon: "💡" },
+  { href: "/app/reminders", label: "Reminders", short: "Reminders", icon: "🔔" },
+  { href: "/app/settings", label: "Settings", short: "Settings", icon: "⚙️" },
 ];
+
+// Mobile bottom bar shows the 5 primary destinations; Settings lives in the
+// mobile header (and the desktop sidebar) to keep the bar uncramped.
+const MOBILE_NAV = NAV.filter((item) => item.href !== "/app/settings");
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -60,9 +65,22 @@ export function AppShell({ children }: { children: ReactNode }) {
           <Link href="/">
             <Logo />
           </Link>
-          <button className="btn-primary !px-3 !py-2 text-xs" onClick={() => setAdding(true)}>
-            ＋ Add
-          </button>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/app/settings"
+              aria-label="Settings"
+              className={`flex h-9 w-9 items-center justify-center rounded-lg text-lg ${
+                pathname.startsWith("/app/settings")
+                  ? "bg-brand-50 text-brand-700"
+                  : "text-ink-500 hover:bg-ink-50"
+              }`}
+            >
+              <span aria-hidden>⚙️</span>
+            </Link>
+            <button className="btn-primary !px-3 !py-2 text-xs" onClick={() => setAdding(true)}>
+              ＋ Add
+            </button>
+          </div>
         </header>
 
         <main className="mx-auto w-full max-w-5xl flex-1 px-4 py-6 sm:px-6 lg:py-8">
@@ -71,7 +89,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
         {/* Mobile bottom nav */}
         <nav className="sticky bottom-0 z-30 grid grid-cols-5 border-t border-ink-100 bg-white lg:hidden">
-          {NAV.map((item) => {
+          {MOBILE_NAV.map((item) => {
             const active =
               item.href === "/app"
                 ? pathname === "/app"
@@ -85,7 +103,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 }`}
               >
                 <span aria-hidden className="text-base">{item.icon}</span>
-                {item.label}
+                {item.short}
               </Link>
             );
           })}

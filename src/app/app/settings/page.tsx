@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import {
   serializeBackup,
@@ -8,6 +8,7 @@ import {
   backupFilename,
   BackupError,
 } from "@/lib/backup";
+import { getApiKey, setApiKey } from "@/lib/aiClient";
 
 type Feedback = { tone: "ok" | "error"; message: string } | null;
 
@@ -16,6 +17,18 @@ export default function SettingsPage() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [importText, setImportText] = useState("");
   const [feedback, setFeedback] = useState<Feedback>(null);
+  const [apiKey, setApiKeyInput] = useState("");
+  const [keyStatus, setKeyStatus] = useState<string | null>(null);
+  useEffect(() => setApiKeyInput(getApiKey()), []);
+
+  function saveKey() {
+    setApiKey(apiKey);
+    setKeyStatus(
+      apiKey.trim()
+        ? "Saved — live AI is now on in the AI Advisor."
+        : "Cleared — the Advisor uses the offline assistant.",
+    );
+  }
 
   const counts = useMemo(() => {
     const active = subscriptions.filter((s) => s.status === "active").length;
@@ -201,6 +214,40 @@ export default function SettingsPage() {
               Import pasted JSON
             </button>
           </div>
+        </div>
+      </section>
+
+      {/* AI Advisor */}
+      <section className="card p-5">
+        <h2 className="font-semibold text-ink-900">AI Advisor</h2>
+        <p className="mt-1 text-sm text-ink-500">
+          The AI Advisor works offline out of the box. Add an Anthropic API key to
+          upgrade its chat to live Claude, grounded in your portfolio.
+        </p>
+        <div className="mt-4">
+          <label className="label" htmlFor="api-key">
+            Anthropic API key
+          </label>
+          <div className="flex flex-wrap gap-2">
+            <input
+              id="api-key"
+              type="password"
+              autoComplete="off"
+              value={apiKey}
+              onChange={(e) => setApiKeyInput(e.target.value)}
+              placeholder="sk-ant-..."
+              className="input flex-1"
+            />
+            <button className="btn-primary shrink-0" onClick={saveKey}>
+              Save
+            </button>
+          </div>
+          {keyStatus && <p className="mt-2 text-xs text-brand-700">{keyStatus}</p>}
+          <p className="mt-2 text-xs text-ink-400">
+            Stored only on this device and sent directly to Anthropic from your
+            browser. For distributing to end customers, route the key through a
+            backend proxy instead of shipping it on-device.
+          </p>
         </div>
       </section>
 
