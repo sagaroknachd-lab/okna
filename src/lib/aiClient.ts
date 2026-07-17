@@ -4,23 +4,38 @@ import { category } from "./categories";
 import { formatINR } from "./format";
 
 /**
- * Optional live-AI layer. When the user has stored an Anthropic API key, the
- * advisor chat is powered by Claude (streaming); otherwise the app falls back
- * to the deterministic responder in advisor.ts.
+ * Live-AI layer for the advisor chat. Three modes, in priority order:
  *
- * This is a browser-only static app (it ships as a static export inside the
- * Android shell), so we call the Messages API directly with `fetch` + the
- * `anthropic-dangerous-direct-browser-access` header rather than the Node SDK
- * (which imports `node:path` and can't bundle for the client).
+ *  1. "proxy" — NEXT_PUBLIC_ADVISOR_API_URL is set at build time. The app calls
+ *     the okna backend proxy (see /server), which holds the Anthropic key
+ *     server-side and streams Claude's reply. This is the production path: live
+ *     AI for every user, no key on the device.
+ *  2. "key"   — the user pasted their own Anthropic key in Settings. The app
+ *     calls Anthropic directly from the browser (owner / power-user path).
+ *  3. "off"   — neither is configured; the advisor uses the offline responder.
  *
- * The key is stored only on this device and sent straight to Anthropic. That's
- * fine for the app owner / power users, but for distributing to end customers
- * the key should live behind a backend proxy — see the note in Settings.
+ * We use plain `fetch` (not the Node SDK, which imports node:path and can't
+ * bundle into this static export).
  */
 
 const KEY_STORAGE = "okna.anthropic.key.v1";
 const MODEL = "claude-opus-4-8";
-const API_URL = "https://api.anthropic.com/v1/messages";
+const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
+
+const PROXY_URL = process.env.NEXT_PUBLIC_ADVISOR_API_URL || "";
+const PROXY_TOKEN = process.env.NEXT_PUBLIC_ADVISOR_APP_TOKEN || "";
+
+// Fixed advisor persona for the direct-key path. The proxy keeps its own copy
+// server-side so it stays authoritative when running in production.
+const INSTRUCTIONS = [
+  "You are okna's AI savings advisor for middle-class Indian households.",
+  "Your job: help the user minimise recurring monthly spend — subscriptions, bills, insurance, credit-card fees, loans — and suggest cheaper vendor options and concrete tips.",
+  "",
+  "Style: warm, concise, specific. Prefer a few short sentences or a tight bullet list. Always denominate in rupees (₹).",
+  "Ground every suggestion in the user's actual portfolio in the context below. Give concrete next steps: switch monthly→annual, cancel unused plans, consolidate duplicates, move to a cheaper vendor, renew insurance before it lapses.",
+  "Any prices or plans you mention are indicative — say 'typically around' and tell the user to verify the current offer. Never claim a specific plan exists at an exact live price.",
+  "Do not invent portfolio items the user doesn't have. If you don't have enough info, ask one short clarifying question.",
+].join("\n");
 
 export function getApiKey(): string {
   if (typeof window === "undefined") return "";
@@ -40,8 +55,16 @@ export function setApiKey(key: string): void {
   }
 }
 
+export type LiveMode = "proxy" | "key" | "off";
+
+export function liveMode(): LiveMode {
+  if (PROXY_URL) return "proxy";
+  if (getApiKey().startsWith("sk-")) return "key";
+  return "off";
+}
+
 export function hasLiveAI(): boolean {
-  return getApiKey().startsWith("sk-");
+  return liveMode() !== "off";
 }
 
 export interface ChatTurn {
@@ -49,7 +72,8 @@ export interface ChatTurn {
   content: string;
 }
 
-function systemPrompt(subs: Subscription[]): string {
+/** Portfolio grounding block (data only — no instructions). */
+function groundingContext(subs: Subscription[]): string {
   const tips = advisorTips(subs);
   const vendorLines: string[] = [];
   for (const m of vendorAlternatives(subs).slice(0, 6)) {
@@ -58,16 +82,7 @@ function systemPrompt(subs: Subscription[]): string {
       `- ${category(m.subscription.category).label}: ${m.subscription.name} → consider ${best.provider} ${best.plan} (~${formatINR(best.monthlySaving)}/mo less).`,
     );
   }
-
   return [
-    "You are okna's AI savings advisor for middle-class Indian households.",
-    "Your job: help the user minimise recurring monthly spend — subscriptions, bills, insurance, credit-card fees, loans — and suggest cheaper vendor options and concrete tips.",
-    "",
-    "Style: warm, concise, specific. Prefer a few short sentences or a tight bullet list. Always denominate in rupees (₹).",
-    "Ground every suggestion in the user's actual portfolio below. Give concrete next steps: switch monthly→annual, cancel unused plans, consolidate duplicates, move to a cheaper vendor, renew insurance before it lapses.",
-    "Any prices or plans you mention are indicative for illustration — say 'typically around' and tell the user to verify the current offer. Never claim a specific plan exists at an exact live price.",
-    "Do not invent portfolio items the user doesn't have. If you don't have enough info, ask one short clarifying question.",
-    "",
     "USER PORTFOLIO:",
     portfolioSummary(subs),
     "",
@@ -79,55 +94,15 @@ function systemPrompt(subs: Subscription[]): string {
     .join("\n");
 }
 
-/**
- * Stream a live Claude reply. Calls `onDelta` with incremental text and
- * resolves with the full text. Throws on auth/network errors so the caller can
- * surface the problem or fall back to the offline responder.
- */
-export async function streamLiveReply(
-  subs: Subscription[],
-  history: ChatTurn[],
+/** Read an Anthropic-style SSE stream, calling onDelta with text as it arrives. */
+async function readSse(
+  body: ReadableStream<Uint8Array>,
   onDelta: (text: string) => void,
 ): Promise<string> {
-  const apiKey = getApiKey();
-  if (!apiKey) throw new Error("No API key configured.");
-
-  const res = await fetch(API_URL, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-      "anthropic-dangerous-direct-browser-access": "true",
-    },
-    body: JSON.stringify({
-      model: MODEL,
-      max_tokens: 1024,
-      stream: true,
-      thinking: { type: "adaptive" },
-      output_config: { effort: "low" },
-      system: systemPrompt(subs),
-      messages: history.map((t) => ({ role: t.role, content: t.content })),
-    }),
-  });
-
-  if (!res.ok || !res.body) {
-    let message = `Request failed (${res.status})`;
-    try {
-      const err = await res.json();
-      message = err?.error?.message ?? message;
-    } catch {
-      /* keep default */
-    }
-    throw new Error(res.status === 401 ? `authentication: ${message}` : message);
-  }
-
-  // Parse the SSE stream and accumulate text deltas.
-  const reader = res.body.getReader();
+  const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   let full = "";
-
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
@@ -156,6 +131,69 @@ export async function streamLiveReply(
       }
     }
   }
-
   return full;
+}
+
+async function errorMessage(res: Response): Promise<string> {
+  try {
+    const err = await res.json();
+    return err?.error?.message ?? `Request failed (${res.status})`;
+  } catch {
+    return `Request failed (${res.status})`;
+  }
+}
+
+/**
+ * Stream a live reply. Uses the proxy when configured, else a per-device key.
+ * Calls `onDelta` with incremental text; resolves with the full text. Throws on
+ * auth/network errors so the caller can fall back to the offline responder.
+ */
+export async function streamLiveReply(
+  subs: Subscription[],
+  history: ChatTurn[],
+  onDelta: (text: string) => void,
+): Promise<string> {
+  const mode = liveMode();
+  const context = groundingContext(subs);
+  const messages = history.map((t) => ({ role: t.role, content: t.content }));
+
+  if (mode === "proxy") {
+    const headers: Record<string, string> = { "content-type": "application/json" };
+    if (PROXY_TOKEN) headers["x-app-token"] = PROXY_TOKEN;
+    const res = await fetch(PROXY_URL, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ context, messages }),
+    });
+    if (!res.ok || !res.body) throw new Error(await errorMessage(res));
+    return readSse(res.body, onDelta);
+  }
+
+  if (mode === "key") {
+    const res = await fetch(ANTHROPIC_URL, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": getApiKey(),
+        "anthropic-version": "2023-06-01",
+        "anthropic-dangerous-direct-browser-access": "true",
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: 1024,
+        stream: true,
+        thinking: { type: "adaptive" },
+        output_config: { effort: "low" },
+        system: `${INSTRUCTIONS}\n\n${context}`,
+        messages,
+      }),
+    });
+    if (!res.ok || !res.body) {
+      const msg = await errorMessage(res);
+      throw new Error(res.status === 401 ? `authentication: ${msg}` : msg);
+    }
+    return readSse(res.body, onDelta);
+  }
+
+  throw new Error("Live AI is not configured.");
 }

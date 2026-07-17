@@ -224,6 +224,12 @@ export default function SettingsPage() {
           The AI Advisor works offline out of the box. Add an Anthropic API key to
           upgrade its chat to live Claude, grounded in your portfolio.
         </p>
+        {process.env.NEXT_PUBLIC_ADVISOR_API_URL ? (
+          <p className="mt-2 rounded-lg bg-brand-50 px-3 py-2 text-xs font-medium text-brand-700">
+            ⚡ Live AI is already on for everyone via your backend — the key below
+            is optional (only used as a fallback on this device).
+          </p>
+        ) : null}
         <div className="mt-4">
           <label className="label" htmlFor="api-key">
             Anthropic API key
