@@ -22,6 +22,8 @@ interface StoreValue {
   update: (id: string, patch: Partial<SubscriptionInput>) => void;
   remove: (id: string) => void;
   setStatus: (id: string, status: Subscription["status"]) => void;
+  replaceAll: (subs: Subscription[]) => void;
+  clear: () => void;
   reset: () => void;
 }
 
@@ -79,6 +81,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         setSubscriptions((prev) =>
           prev.map((s) => (s.id === id ? { ...s, status } : s)),
         ),
+      replaceAll: (subs) => setSubscriptions(subs),
+      clear: () => setSubscriptions([]),
       reset: () => setSubscriptions(defaultSubscriptions()),
     }),
     [subscriptions, ready],

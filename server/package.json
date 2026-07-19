@@ -1,0 +1,14 @@
+{
+  "name": "okna-advisor-proxy",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Backend proxy that powers okna's AI Advisor with Claude (keeps the API key server-side).",
+  "main": "advisor-proxy.mjs",
+  "scripts": {
+    "start": "node advisor-proxy.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

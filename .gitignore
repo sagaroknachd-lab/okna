@@ -16,6 +16,10 @@
 # production
 /build
 
+# android build artifacts
+*.apk
+*.aab
+
 # misc
 .DS_Store
 *.pem
@@ -27,6 +31,8 @@ yarn-error.log*
 
 # local env files
 .env*.local
+server/.env
+server/node_modules
 
 # vercel
 .vercel
