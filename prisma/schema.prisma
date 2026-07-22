@@ -1,0 +1,146 @@
+// okna — AI CFO MVP data model (Prisma + SQLite, local only).
+//
+// Safety by construction: this schema stores an educational, read-only money
+// picture from MOCK / SAMPLE data. There is no field anywhere for real bank
+// credentials, OTPs, card numbers, or payment tokens — the app never captures
+// or moves real money. A real RBI Account Aggregator feed would arrive through
+// the DataProvider interface (src/lib/data-provider.ts) and be written into
+// these same tables; it is NOT modelled here.
+//
+// Money is stored as whole rupees (INR) in integer fields.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+/// The person whose money picture we advise on. MVP is single-user, but the
+/// relations below are per-user so multi-user could be added later without a
+/// reshape. `isSample` flags seeded demo data so the UI can label it clearly.
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  monthlyIncome Int // whole rupees / month
+  city          String
+  isSample      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+
+  transactions   Transaction[]
+  recurringItems RecurringItem[]
+  goals          Goal[]
+  skills         Skill[]
+}
+
+/// One money movement. Direction is "in" (income/credit) or "out"
+/// (spend/debit). `source` is the rail it came through ("upi" | "card" |
+/// "cash") so we can show a "cash/UPI blindspot covered" note. `category` is a
+/// free string (see src/lib/categories.ts) and is user-editable in one tap;
+/// `categoryEdited` records that the user corrected our guess so we can learn
+/// from it in-session.
+model Transaction {
+  id             String   @id @default(cuid())
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  date           DateTime
+  amount         Int // whole rupees, always positive; direction carries the sign
+  direction      String // "in" | "out"
+  category       String
+  source         String // "upi" | "card" | "cash"
+  note           String?
+  categoryEdited Boolean  @default(false)
+  createdAt      DateTime @default(now())
+
+  @@index([userId])
+}
+
+/// A recurring commitment — subscription, EMI, loan, or utility bill. This is
+/// okna's original Subscription concept, generalised: `kind` distinguishes
+/// "subscription" | "emi" | "loan" | "bill" so the dashboard can call out EMIs
+/// and loans separately from discretionary subscriptions. `amount` is per
+/// billing `cycle`. `usage` powers the "unused" savings insight.
+model RecurringItem {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name        String
+  provider    String?
+  category    String
+  amount      Int // whole rupees per cycle
+  cycle       String // "monthly" | "quarterly" | "half-yearly" | "yearly"
+  nextRenewal DateTime
+  kind        String   @default("subscription") // "subscription" | "emi" | "loan" | "bill"
+  status      String   @default("active") // "active" | "paused" | "cancelled"
+  autoRenew   Boolean  @default(true)
+  usage       String? // "daily" | "weekly" | "monthly" | "rarely" | "never"
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
+/// The anchor. A concrete thing the user is saving toward (e.g. "iPhone 16").
+/// `targetDate` is optional — the goal engine computes a PROJECTED completion
+/// date from current monthly surplus when no date is set. `savedSoFar` is how
+/// much they've already put aside toward this goal.
+model Goal {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title        String
+  targetAmount Int // whole rupees
+  targetDate   DateTime? // optional user-set deadline
+  savedSoFar   Int       @default(0)
+  active       Boolean   @default(true)
+  createdAt    DateTime  @default(now())
+
+  @@index([userId])
+}
+
+/// A skill or interest the user has, plus how many free hours/week they could
+/// put behind it. Feeds the Earn-More Engine's match scoring. `kind`
+/// distinguishes a monetisable "skill" from a "interest"/hobby.
+model Skill {
+  id                String   @id @default(cuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tag               String // e.g. "graphic-design", "cooking", "english-tutoring"
+  kind              String   @default("skill") // "skill" | "interest"
+  proficiency       String   @default("intermediate") // "beginner" | "intermediate" | "advanced"
+  hoursFreePerWeek  Int      @default(0)
+  createdAt         DateTime @default(now())
+
+  @@index([userId])
+}
+
+/// A vetted way to earn more, from a curated catalogue (NOT per-user — the
+/// engine scores these against a user's skills at read time).
+///
+/// SAFETY IS STRUCTURAL: the three `requires*` booleans are the hard filter.
+/// Any idea with requiresUpfrontPayment, requiresCredentials, or
+/// requiresOtpShare set true must NEVER be surfaced to the user. The seed
+/// deliberately includes a couple of flagged "scam" decoys so the filter in
+/// src/lib/gig-engine.ts can be seen rejecting them; the same filter would
+/// reject unsafe rows from any future feed.
+/// `safetyScore` (0–100) and `safetyNotes` explain, in one line, why an idea
+/// is or isn't low-risk. `matchedSkillTags` is a JSON array of skill tags this
+/// idea fits.
+model GigIdea {
+  id                     String   @id @default(cuid())
+  title                  String
+  category               String // e.g. "freelance", "tutoring", "content", "local-services"
+  description            String
+  estRate                Int // whole rupees
+  rateUnit               String // "per_hour" | "per_gig" | "per_month"
+  effort                 String // "low" | "medium" | "high"
+  safetyScore            Int // 0–100, higher = safer / more legitimate
+  safetyNotes            String // one-line "why this is/isn't low-risk"
+  matchedSkillTags       String // JSON array of skill tags, e.g. ["graphic-design"]
+  requiresUpfrontPayment Boolean  @default(false)
+  requiresCredentials    Boolean  @default(false)
+  requiresOtpShare       Boolean  @default(false)
+  createdAt              DateTime @default(now())
+}
